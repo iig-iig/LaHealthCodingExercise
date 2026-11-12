@@ -1,0 +1,1061 @@
+You are a Software Developer experienced with C#, .NET 8, Azure Functions, REST integrations, dependency injection, automated testing, and production-quality backend development.
+
+Create a complete, submission-ready solution for the coding exercise below.
+
+The implementation should demonstrate:
+- clean, readable C#;
+- correct data transformation;
+- defensive input validation;
+- clear HTTP error handling;
+- SOLID design where appropriate;
+- dependency injection;
+- testability;
+- good automated test coverage;
+- realistic production considerations.
+
+IMPORTANT:
+This is a small take-home coding exercise.
+
+Do NOT over-engineer the solution with repositories, CQRS, MediatR, domain-event frameworks, unnecessary factories, excessive interfaces, or additional projects.
+
+Use a small layered architecture with a clear separation between:
+- HTTP handling;
+- validation;
+- mapping/transformation;
+- models.
+
+==================================================
+1. TECHNOLOGY
+==================================================
+
+Use:
+
+- C#
+- .NET 8
+- Azure Functions v4
+- .NET 8 Isolated Worker model
+- System.Text.Json
+- Microsoft.Extensions.DependencyInjection
+- ILogger<T>
+- xUnit
+- FluentAssertions
+- nullable reference types
+
+The solution must compile and run with:
+
+dotnet build
+dotnet test
+
+It must also be suitable for opening and running in Visual Studio 2022.
+
+Use only the .NET isolated-worker Azure Functions model.
+
+Do NOT use:
+- the legacy in-process Azure Functions model;
+- Microsoft.Azure.WebJobs;
+- Newtonsoft.Json unless absolutely necessary.
+
+Prefer System.Text.Json throughout.
+
+==================================================
+2. SCENARIO
+==================================================
+
+An online member registration is submitted to a CRM.
+
+The integration receives the CRM registration as JSON, validates it, and transforms it into the JSON contract expected by a legacy membership REST API.
+
+For this exercise, do NOT actually call the legacy API.
+
+The Azure Function should return the transformed legacy payload.
+
+==================================================
+3. INPUT CONTRACT
+==================================================
+
+Example request:
+
+{
+  "firstName": "Alex",
+  "lastName": "Nguyen",
+  "dateOfBirth": "1990-04-12",
+  "email": "alex.nguyen@example.com",
+  "membershipType": "Single",
+  "registeredAt": "2026-06-01T09:00:00Z"
+}
+
+registeredAt is optional for this exercise.
+
+If supplied:
+- accept it;
+- do not validate it;
+- do not map it;
+- do not include it in the legacy payload.
+
+Unexpected additional JSON properties must be ignored and must not cause deserialization or validation to fail.
+
+==================================================
+4. EXPECTED OUTPUT
+==================================================
+
+For the example request, return:
+
+{
+  "member": {
+    "given_name": "Alex",
+    "family_name": "Nguyen",
+    "dob": "12/04/1990",
+    "contact": {
+      "email": "alex.nguyen@example.com"
+    },
+    "plan_code": "S",
+    "source": "MILKYWAY"
+  }
+}
+
+The JSON property names in the output must match this contract exactly.
+
+Use JsonPropertyName attributes where appropriate so that the legacy snake_case property names are explicit and deterministic.
+
+==================================================
+5. MAPPING RULES
+==================================================
+
+Map:
+
+firstName
+-> member.given_name
+
+lastName
+-> member.family_name
+
+dateOfBirth
+-> member.dob
+
+email
+-> member.contact.email
+
+membershipType
+-> member.plan_code
+
+source
+-> always the literal "MILKYWAY"
+
+Do not include registeredAt in the legacy response.
+
+==================================================
+6. PLAN CODE MAPPING
+==================================================
+
+Use the following mapping:
+
+Single -> S
+Family -> F
+Couple -> C
+
+Treat these values as case-sensitive using ordinal comparison.
+
+Therefore:
+
+"Single" = valid
+"Family" = valid
+"Couple" = valid
+
+But values such as:
+
+"single"
+"FAMILY"
+"couple"
+"Couples"
+
+must be rejected.
+
+Do not silently normalize unsupported values.
+
+==================================================
+7. DATE HANDLING
+==================================================
+
+dateOfBirth must be provided in exactly:
+
+yyyy-MM-dd
+
+Example:
+
+1990-04-12
+
+The legacy system requires:
+
+dd/MM/yyyy
+
+Example:
+
+12/04/1990
+
+Validate the date using:
+
+DateOnly.TryParseExact
+
+with:
+
+"yyyy-MM-dd"
+CultureInfo.InvariantCulture
+DateTimeStyles.None
+
+Do NOT use:
+- DateTime.Parse;
+- DateTime.TryParse without an exact format;
+- current machine culture;
+- manual substring manipulation.
+
+The date must also represent a real calendar date.
+
+For example:
+
+1990-02-30
+
+must be rejected.
+
+Format the resulting legacy date using:
+
+"dd/MM/yyyy"
+
+and CultureInfo.InvariantCulture.
+
+==================================================
+8. VALIDATION
+==================================================
+
+Validation must occur BEFORE mapping.
+
+The following properties are required:
+
+- firstName
+- lastName
+- dateOfBirth
+- email
+- membershipType
+
+Treat all of the following as missing:
+
+- property absent;
+- null;
+- empty string;
+- whitespace-only string.
+
+Validate:
+
+1. firstName is required.
+2. lastName is required.
+3. dateOfBirth is required.
+4. dateOfBirth must be exactly yyyy-MM-dd and represent a valid calendar date.
+5. email is required.
+6. email must have a plausible email format.
+7. membershipType is required.
+8. membershipType must be exactly Single, Family, or Couple.
+
+A missing field must not also produce a format validation error.
+
+For example:
+
+"email": ""
+
+should produce:
+
+"email is required"
+
+and NOT also:
+
+"email is invalid"
+
+==================================================
+9. EXACT VALIDATION MESSAGES
+==================================================
+
+Use these exact messages:
+
+"firstName is required"
+
+"lastName is required"
+
+"dateOfBirth is required"
+
+"dateOfBirth must be in yyyy-MM-dd format"
+
+"email is required"
+
+"email is invalid"
+
+"membershipType is required"
+
+"membershipType must be Single, Family or Couple"
+
+Return ALL applicable validation errors in a single response.
+
+Do not stop after the first validation failure.
+
+Errors should have deterministic ordering:
+
+1. firstName
+2. lastName
+3. dateOfBirth
+4. email
+5. membershipType
+
+==================================================
+10. VALIDATION RESPONSE
+==================================================
+
+Use a strongly typed response model such as:
+
+public sealed record ValidationErrorResponse(
+    IReadOnlyCollection<string> Errors);
+
+Example HTTP 400 response:
+
+{
+  "errors": [
+    "firstName is required",
+    "email is invalid"
+  ]
+}
+
+Do not return plain text validation errors.
+
+==================================================
+11. MALFORMED REQUEST HANDLING
+==================================================
+
+The Function must gracefully handle:
+
+- empty request body;
+- malformed JSON;
+- JSON null;
+- a root JSON value that cannot represent RegistrationRequest;
+- missing fields;
+- invalid fields;
+- unexpected extra properties.
+
+These cases must NOT cause an unhandled exception or expose framework exception details.
+
+Return HTTP 400 for invalid request JSON.
+
+Use a clear error such as:
+
+{
+  "errors": [
+    "Request body contains invalid JSON"
+  ]
+}
+
+For an empty body, return a clear validation response, for example:
+
+{
+  "errors": [
+    "Request body is required"
+  ]
+}
+
+Do not expose:
+- exception stack traces;
+- serializer implementation details;
+- internal server information.
+
+==================================================
+12. HTTP FUNCTION CONTRACT
+==================================================
+
+Create an HTTP-triggered Azure Function.
+
+Function name:
+
+RegistrationFunction
+
+HTTP method:
+
+POST
+
+Route:
+
+api/registrations
+
+Use:
+
+HttpRequestData
+HttpResponseData
+
+Return:
+
+HTTP 200 OK
+for a successfully validated and transformed request.
+
+Return:
+
+HTTP 400 Bad Request
+for expected request/deserialization/validation errors.
+
+Use:
+
+application/json
+
+for JSON responses.
+
+Use a sensible AuthorizationLevel and document the choice in the README.
+
+For a take-home/local demonstration, AuthorizationLevel.Function is acceptable.
+
+==================================================
+13. ERROR HANDLING
+==================================================
+
+Handle expected failures explicitly:
+
+- empty request;
+- malformed JSON;
+- validation failures.
+
+Do not add catch(Exception) blocks throughout validators and mappers simply to suppress failures.
+
+Keep validation failures separate from unexpected application failures.
+
+If handling unexpected exceptions at the HTTP boundary:
+
+- log the exception;
+- return HTTP 500;
+- return a generic error;
+- never expose exception details or stack traces to the client.
+
+==================================================
+14. ARCHITECTURE
+==================================================
+
+Use the following structure:
+
+MembershipIntegration.sln
+
+MembershipIntegration.Functions
+│
+├── Functions
+│   └── RegistrationFunction.cs
+│
+├── Models
+│   ├── RegistrationRequest.cs
+│   ├── LegacyMemberRequest.cs
+│   ├── LegacyMember.cs
+│   ├── Contact.cs
+│   └── ValidationErrorResponse.cs
+│
+├── Services
+│   ├── IRegistrationValidator.cs
+│   ├── RegistrationValidator.cs
+│   ├── IRegistrationMapper.cs
+│   └── RegistrationMapper.cs
+│
+├── Program.cs
+├── host.json
+└── MembershipIntegration.Functions.csproj
+
+
+MembershipIntegration.Tests
+│
+├── RegistrationValidatorTests.cs
+├── RegistrationMapperTests.cs
+├── RegistrationFunctionTests.cs
+└── MembershipIntegration.Tests.csproj
+
+
+README.md
+.gitignore
+local.settings.json.example
+
+Minor structural adjustments are allowed only if required to make the .NET 8 isolated-worker solution compile correctly.
+
+Do not introduce extra projects unless technically necessary.
+
+==================================================
+15. RESPONSIBILITIES
+==================================================
+
+RegistrationFunction:
+
+Responsible only for:
+- HTTP request handling;
+- JSON deserialization;
+- calling validation;
+- returning HTTP 400 when appropriate;
+- calling the mapper after successful validation;
+- serialization;
+- HTTP responses;
+- boundary-level logging/error handling.
+
+RegistrationValidator:
+
+Responsible only for business/input validation.
+
+It must return validation errors rather than throw exceptions for normal invalid input.
+
+RegistrationMapper:
+
+Responsible only for transformation from the validated CRM registration model to the legacy model.
+
+RegistrationMapper may assume the input has already passed validation.
+
+Do not duplicate validation logic inside the mapper.
+
+==================================================
+16. DEPENDENCY INJECTION
+==================================================
+
+Use constructor injection.
+
+Register services in Program.cs.
+
+Register:
+
+IRegistrationValidator -> RegistrationValidator
+
+IRegistrationMapper -> RegistrationMapper
+
+Inject into RegistrationFunction:
+
+IRegistrationValidator
+
+IRegistrationMapper
+
+ILogger<RegistrationFunction>
+
+Use an appropriate lifetime, preferably Singleton for stateless validator/mapper services unless there is a technical reason not to.
+
+==================================================
+17. MODELS
+==================================================
+
+Use records where they improve clarity and immutability.
+
+Use nullable reference types appropriately.
+
+Input model fields should allow invalid/missing input to reach the validator rather than relying entirely on deserialization failure.
+
+Make the distinction between:
+- transport/deserialization;
+- validation;
+- mapping
+
+clear.
+
+Use explicit JsonPropertyName attributes for the legacy payload where useful.
+
+Successful serialized JSON must contain exactly:
+
+member
+given_name
+family_name
+dob
+contact
+email
+plan_code
+source
+
+==================================================
+18. JSON BEHAVIOR
+==================================================
+
+Use System.Text.Json.
+
+Unknown input properties must be ignored.
+
+CRM input uses camelCase JSON.
+
+Legacy output must use the exact snake_case contract shown above.
+
+Do not accidentally return C# PascalCase property names.
+
+==================================================
+19. LOGGING
+==================================================
+
+Use:
+
+ILogger<RegistrationFunction>
+
+through constructor injection.
+
+Use structured logging rather than interpolated log strings.
+
+Log useful events such as:
+
+- request received;
+- malformed request;
+- validation failure count;
+- successful transformation;
+- unexpected application error.
+
+Do NOT log:
+
+- complete request JSON;
+- firstName;
+- lastName;
+- dateOfBirth;
+- email;
+- other sensitive member information.
+
+==================================================
+20. CANCELLATION
+==================================================
+
+Accept a CancellationToken in the Function where supported.
+
+Pass the CancellationToken to asynchronous request/response operations where the API supports it.
+
+==================================================
+21. UNIT TESTING
+==================================================
+
+Use:
+
+xUnit
+FluentAssertions
+
+Tests must be deterministic and independent.
+
+Prefer:
+
+[Theory]
+[InlineData]
+
+where parameterized tests improve clarity.
+
+==================================================
+22. VALIDATOR TESTS
+==================================================
+
+Create tests covering at minimum:
+
+1. Valid registration has no validation errors.
+2. Missing firstName.
+3. Empty firstName.
+4. Whitespace firstName.
+5. Missing lastName.
+6. Missing dateOfBirth.
+7. Missing email.
+8. Missing membershipType.
+9. Invalid email format.
+10. Invalid membership type.
+11. Lowercase membership type is rejected.
+12. Invalid DOB format.
+13. Impossible DOB such as 1990-02-30.
+14. Multiple invalid properties return all applicable errors.
+15. Required fields do not also produce format errors.
+
+==================================================
+23. MAPPER TESTS
+==================================================
+
+Create tests covering:
+
+1. Valid registration maps correctly.
+2. firstName -> given_name.
+3. lastName -> family_name.
+4. email -> contact.email.
+5. Single -> S.
+6. Family -> F.
+7. Couple -> C.
+8. yyyy-MM-dd converts to dd/MM/yyyy.
+9. source always equals MILKYWAY.
+10. registeredAt does not appear in the legacy payload.
+
+Use parameterized tests for the plan-code mappings where appropriate.
+
+==================================================
+24. FUNCTION / HTTP TESTS
+==================================================
+
+Create Function-level tests covering important orchestration and serialization behavior.
+
+At minimum test:
+
+1. Valid request returns HTTP 200.
+2. Response contains the expected legacy JSON contract.
+3. Validation failure returns HTTP 400.
+4. Multiple validation failures are returned.
+5. Malformed JSON returns HTTP 400.
+6. Empty body returns HTTP 400.
+7. Unexpected additional JSON fields are ignored.
+8. Input containing an extra property still transforms successfully.
+
+IMPORTANT:
+
+The extra-field test must exercise actual JSON deserialization or the Function.
+
+Do NOT satisfy this requirement merely by constructing a RegistrationRequest instance and passing it directly to RegistrationMapper.
+
+Where HttpRequestData/HttpResponseData require test doubles, provide complete compilable test implementations or an appropriate lightweight testing approach.
+
+Do not provide pseudocode.
+
+==================================================
+25. NUGET PACKAGES
+==================================================
+
+Include all required PackageReference entries in the appropriate .csproj files.
+
+Functions project should use appropriate stable, mutually compatible packages for .NET 8/Azure Functions v4, including where necessary:
+
+- Microsoft.Azure.Functions.Worker
+- Microsoft.Azure.Functions.Worker.Sdk
+- Microsoft.Azure.Functions.Worker.Extensions.Http
+- Microsoft.Azure.Functions.Worker.ApplicationInsights
+- Microsoft.ApplicationInsights.WorkerService
+
+Test project:
+
+- Microsoft.NET.Test.Sdk
+- xunit
+- xunit.runner.visualstudio
+- FluentAssertions
+- coverlet.collector
+
+Do not blindly choose incompatible package versions.
+
+Use stable versions compatible with .NET 8 and Azure Functions v4.
+
+==================================================
+26. README
+==================================================
+
+Create a professional README.md containing:
+
+## Overview
+
+Explain the integration scenario.
+
+## Architecture
+
+Explain:
+- HTTP Function;
+- validation service;
+- mapping service;
+- models;
+- dependency injection.
+
+Explain why this small layered architecture was chosen instead of a larger enterprise architecture.
+
+## Prerequisites
+
+Include:
+- .NET 8 SDK;
+- Azure Functions Core Tools v4;
+- Visual Studio 2022 option;
+- relevant Azure development workload if applicable.
+
+## Build
+
+Provide exact commands.
+
+For example:
+
+dotnet restore
+dotnet build
+
+## Test
+
+Provide:
+
+dotnet test
+
+## Run locally
+
+Provide the exact command for starting the Azure Function locally.
+
+## Example Request
+
+Include a curl example.
+
+## Successful Response
+
+Show the expected HTTP 200 JSON.
+
+## Validation Error
+
+Show an HTTP 400 example.
+
+## Design Decisions
+
+Explain:
+- DateOnly/TryParseExact;
+- invariant culture;
+- validation separation;
+- mapper separation;
+- System.Text.Json;
+- unknown-property handling;
+- DI;
+- validation error structure.
+
+==================================================
+27. PRODUCTION OUTBOUND API DESIGN
+==================================================
+
+The README must explain how the solution could be extended to call the actual legacy API.
+
+Discuss:
+
+### HttpClient
+
+Use IHttpClientFactory or an appropriately configured typed HttpClient.
+
+Explain why a new HttpClient should not be created for every request.
+
+### Authentication
+
+Explain realistic options such as:
+
+- OAuth 2.0/client credentials if supported;
+- API key if required by the legacy API;
+- Azure Managed Identity where supported;
+- Azure Key Vault for secrets.
+
+Do not hard-code credentials.
+
+### Retry strategy
+
+Describe retries for transient failures such as:
+
+- HTTP 429
+- HTTP 502
+- HTTP 503
+- HTTP 504
+- transient network errors
+
+Use bounded exponential backoff with jitter.
+
+Respect Retry-After when supplied.
+
+Explain that normal HTTP 4xx validation/authentication failures should generally not be retried blindly.
+
+Mention an appropriate modern .NET resilience approach such as Microsoft.Extensions.Http.Resilience where relevant.
+
+### Timeout strategy
+
+Explain:
+
+- connection/request timeout considerations;
+- cancellation tokens;
+- bounded timeouts;
+- avoiding indefinite requests.
+
+### Logging and monitoring
+
+Discuss:
+
+- Application Insights;
+- structured ILogger logging;
+- correlation/operation IDs;
+- dependency telemetry;
+- failure rate;
+- latency;
+- retry counts;
+- alerts.
+
+Never log member PII unnecessarily.
+
+### Idempotency
+
+Briefly explain how duplicate member creation could be prevented if outbound requests are retried.
+
+==================================================
+28. CONFIGURATION FILES
+==================================================
+
+Provide complete contents for:
+
+- MembershipIntegration.Functions.csproj
+- MembershipIntegration.Tests.csproj
+- Program.cs
+- host.json
+- local.settings.json.example
+- .gitignore
+- README.md
+
+Do not put real secrets in configuration.
+
+For local.settings.json.example use obvious placeholder values only.
+
+==================================================
+29. SOLUTION CREATION COMMANDS
+==================================================
+
+Provide exact CLI commands for:
+
+- creating the solution;
+- creating the Azure Functions project if applicable;
+- creating the xUnit test project;
+- adding projects to the solution;
+- adding the project reference;
+- restoring packages;
+- building;
+- running tests;
+- starting the Function locally.
+
+The commands must correspond to the supplied project structure.
+
+==================================================
+30. CODE QUALITY
+==================================================
+
+Follow these principles:
+
+- readable code over clever code;
+- small focused classes;
+- single responsibility;
+- dependency inversion where useful;
+- constructor injection;
+- async where appropriate;
+- nullable reference types;
+- culture-independent date behavior;
+- deterministic tests;
+- meaningful method/class/property names.
+
+Avoid unnecessary abstractions.
+
+Do not add:
+
+- MediatR;
+- CQRS;
+- repositories;
+- database layers;
+- AutoMapper;
+- FluentValidation;
+- domain events;
+- unnecessary factories;
+- unnecessary generic abstractions
+
+unless there is an unavoidable technical requirement.
+
+The point of the exercise is to demonstrate good engineering judgment, not architectural complexity.
+
+==================================================
+31. OUTPUT FORMAT
+==================================================
+
+Return the solution in this exact sequence:
+
+1. Architecture summary
+
+2. Final folder/project structure
+
+3. Solution/project creation commands
+
+4. MembershipIntegration.Functions.csproj
+
+5. MembershipIntegration.Tests.csproj
+
+6. Program.cs
+
+7. All Models
+
+8. Validator interface and implementation
+
+9. Mapper interface and implementation
+
+10. RegistrationFunction.cs
+
+11. host.json
+
+12. local.settings.json.example
+
+13. All validator tests
+
+14. All mapper tests
+
+15. All Function-level tests and required test doubles/helpers
+
+16. .gitignore
+
+17. Complete README.md
+
+18. Example curl request
+
+19. Example HTTP 200 response
+
+20. Example HTTP 400 responses
+
+21. Build/test/run commands
+
+22. Requirement-to-implementation checklist
+
+==================================================
+32. NO PLACEHOLDERS
+==================================================
+
+Do NOT output incomplete code.
+
+Do NOT use:
+
+// TODO
+
+// implementation here
+
+// omitted for brevity
+
+// add remaining tests
+
+// existing code
+
+...
+
+or pseudocode in place of required implementation.
+
+Every referenced class, method, model, namespace, dependency, test fixture, and helper must be provided.
+
+==================================================
+33. FINAL CONSISTENCY REVIEW
+==================================================
+
+Before producing the final answer, internally review the entire solution.
+
+Verify:
+
+- namespaces are consistent;
+- all using directives are correct;
+- nullable reference types compile;
+- project references are correct;
+- PackageReference entries are sufficient;
+- Azure Functions packages are compatible with .NET 8 isolated worker;
+- the Function uses isolated-worker APIs only;
+- DI registrations match constructor dependencies;
+- JSON property names match the required contract exactly;
+- date parsing is culture-independent;
+- membership mappings are correct;
+- validation messages exactly match the specification;
+- errors are returned rather than thrown for normal invalid input;
+- unknown JSON fields are ignored;
+- no sensitive request content is logged;
+- mapper tests correspond to the mapper implementation;
+- validator tests correspond to validator behavior;
+- HTTP tests exercise the Function behavior;
+- dotnet build should succeed;
+- dotnet test should succeed;
+- all commands match the stated project structure;
+- README examples match the implementation;
+- no placeholder implementations remain.
+
+If you detect an inconsistency during this review, correct the generated solution before presenting it.
+
+==================================================
+34. EXERCISE SUCCESS CRITERIA
+==================================================
+
+The finished solution should make it easy for a reviewer to see:
+
+1. Correct CRM-to-legacy data mapping.
+2. Strong input validation.
+3. Graceful handling of malformed input.
+4. Correct date transformation.
+5. Correct membership plan conversion.
+6. Appropriate use of dependency injection.
+7. Appropriate use of ILogger.
+8. Clean separation between HTTP, validation, and mapping.
+9. Useful automated tests.
+10. Understanding of production integration concerns.
+
+The implementation should look like something a strong .NET software Developer would submit for a take-home coding exercise while remaining small, understandable, and easy to discuss during an interview.
