@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <RootNamespace>MembershipIntegration.Functions</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="local.settings.json" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.0.0" />
